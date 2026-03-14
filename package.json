@@ -1,0 +1,23 @@
+{
+  "name": "dividend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "master.js",
+  "scripts": {
+    "start": "node master.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.99.1",
+    "axios": "^1.13.6",
+    "csvtojson": "^2.0.14",
+    "dotenv": "^17.3.1",
+    "pg": "^8.20.0",
+    "playwright": "^1.58.2",
+    "yahoo-finance2": "^3.13.2"
+  }
+}

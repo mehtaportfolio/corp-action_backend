@@ -1,0 +1,11 @@
+services:
+  - type: worker
+    name: dividend-scraper
+    env: node
+    buildCommand: npm install
+    startCommand: node master.js
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

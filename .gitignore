@@ -1,0 +1,8 @@
+node_modules/
+.env
+*.log
+test_av.js
+schema.sql
+AGENTS.md
+.zencoder/
+.zenflow/
