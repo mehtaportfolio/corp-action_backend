@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: dividend-scraper
     env: node
     buildCommand: npm install
@@ -8,4 +8,8 @@ services:
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PORT
+        value: "3000"
+      - key: FRONTEND_URL
         sync: false
