@@ -44,17 +44,20 @@ async function runScraper() {
   return duration
 }
 
+// Root endpoint
+app.get("/", (req, res) => {
+  res.status(200).json({ status: "ok", message: "Dividend Scraper API is running. Use /trigger to start scraping." })
+})
+
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok", message: "Service is healthy" })
 })
 
-// Trigger endpoint
-app.post("/trigger", async (req, res) => {
+// Trigger endpoint (supports both GET and POST)
+app.all("/trigger", async (req, res) => {
   try {
-    // Run scraper in background or await if short enough
-    // For Render web services, long-running requests might timeout, 
-    // but we can return early or await.
+    console.log(`Trigger received via ${req.method}`)
     const duration = await runScraper()
     res.status(200).json({ 
       success: true, 
