@@ -21,8 +21,8 @@ function getDateRange() {
 
   const today = new Date()
 
-  const lastMonth = new Date()
-  lastMonth.setDate(today.getDate() - 30)
+  const nextMonth = new Date()
+  nextMonth.setDate(today.getDate() + 30)
 
   const format = (d) => {
     const day = String(d.getDate()).padStart(2, "0")
@@ -32,8 +32,8 @@ function getDateRange() {
   }
 
   return {
-    from: format(lastMonth),
-    to: format(today)
+    from: format(today),
+    to: format(nextMonth)
   }
 }
 
@@ -216,6 +216,7 @@ async function saveToSupabase(records) {
 
     return {
       symbol: "NSE:" + item.symbol,
+      stock_name: item.symbol,
       company_name: item.comp,
       action_type: actionType,
       purpose: purpose,

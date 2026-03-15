@@ -77,16 +77,21 @@ async function fetchSingleSymbol(masterSymbol, stockName, from, to) {
   const cleanSymbol = parts.length > 1 ? parts[1] : parts[0]
   
   let yahooSymbol = null
+  let finalStockName = stockName
   if (prefix === "NSE") {
     yahooSymbol = cleanSymbol + ".NS"
+    finalStockName = cleanSymbol
   } else if (prefix === "BOM") {
     yahooSymbol = cleanSymbol + ".BO"
+    finalStockName = stockName // already company_name
   } else {
     // Guess based on symbol format (Numeric = BOM, Alpha = NSE)
     if (/^\d+$/.test(cleanSymbol)) {
       yahooSymbol = cleanSymbol + ".BO"
+      finalStockName = stockName
     } else {
       yahooSymbol = cleanSymbol + ".NS"
+      finalStockName = cleanSymbol
     }
   }
 
@@ -104,6 +109,7 @@ async function fetchSingleSymbol(masterSymbol, stockName, from, to) {
       result.events.dividends.forEach(item => {
         records.push({
           symbol: masterSymbol,
+          stock_name: finalStockName,
           company_name: stockName,
           action_type: "DIVIDEND",
           purpose: "Dividend",
@@ -120,6 +126,7 @@ async function fetchSingleSymbol(masterSymbol, stockName, from, to) {
       result.events.splits.forEach(item => {
         records.push({
           symbol: masterSymbol,
+          stock_name: finalStockName,
           company_name: stockName,
           action_type: "SPLIT",
           purpose: "Stock Split",

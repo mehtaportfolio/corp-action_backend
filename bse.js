@@ -42,9 +42,9 @@ async function getBseCookie() {
 /* ---------------- DATE RANGE ---------------- */
 
 function getDateRange() {
-  const to = new Date()
-  const from = new Date()
-  from.setDate(to.getDate() - 30)
+  const today = new Date()
+  const nextMonth = new Date()
+  nextMonth.setDate(today.getDate() + 30)
 
   const format = d =>
     `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(
@@ -52,8 +52,8 @@ function getDateRange() {
     ).padStart(2, "0")}`
 
   return {
-    from: format(from),
-    to: format(to)
+    from: format(today),
+    to: format(nextMonth)
   }
 }
 
@@ -229,6 +229,7 @@ async function saveToSupabase(records) {
 
     const record = {
       symbol,
+      stock_name: item.Security,
       company_name: item.Security,
       action_type: actionType,
       purpose: item.Purpose,
