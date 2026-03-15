@@ -3,18 +3,15 @@ const fetch = globalThis.fetch
 const { createClient } = require("@supabase/supabase-js")
 
 /* ---------------- SUPABASE ---------------- */
-
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
 /* ---------------- BSE API ---------------- */
-
 const API_URL = "https://api.bseindia.com/BseIndiaAPI/api/CorpAction/w"
 
 /* ---------------- HEADERS ---------------- */
-
 const getHeaders = () => ({
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
@@ -25,50 +22,33 @@ const getHeaders = () => ({
   Connection: "keep-alive"
 })
 
-/* ---------------- GET BSE COOKIE ---------------- */
-
+/* ---------------- GET COOKIE ---------------- */
 async function getBseCookie() {
-  const res = await fetch("https://www.bseindia.com/", {
-    headers: getHeaders()
-  })
-
+  const res = await fetch("https://www.bseindia.com/", { headers: getHeaders() })
   const cookie = res.headers.get("set-cookie")
-
   if (!cookie) return ""
-
   return cookie.split(";")[0]
 }
 
 /* ---------------- DATE RANGE ---------------- */
-
 function getDateRange() {
   const today = new Date()
-  const nextMonth = new Date()
-  nextMonth.setDate(today.getDate() + 30)
+  const lastMonth = new Date()
+  lastMonth.setDate(today.getDate() - 30)
 
   const format = d =>
-    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(
-      d.getDate()
-    ).padStart(2, "0")}`
+    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`
 
-  return {
-    from: format(today),
-    to: format(nextMonth)
-  }
+  return { from: format(lastMonth), to: format(today) }
 }
 
 /* ---------------- DATE PARSER ---------------- */
-
 function parseDate(dateStr) {
   if (!dateStr || dateStr === "-") return null
-
-  // DD/MM/YYYY
   if (dateStr.includes("/")) {
     const [day, month, year] = dateStr.split("/")
     return `${year}-${month}-${day}`
   }
-
-  // 09 Mar 2026
   const d = new Date(dateStr)
   if (!isNaN(d)) {
     const y = d.getFullYear()
@@ -76,221 +56,237 @@ function parseDate(dateStr) {
     const day = String(d.getDate()).padStart(2, "0")
     return `${y}-${m}-${day}`
   }
-
   return null
 }
 
 /* ---------------- ACTION TYPE ---------------- */
-
 function parseAction(purpose) {
   if (!purpose) return "OTHER"
-
   const p = purpose.toLowerCase()
-
   if (p.includes("dividend")) return "DIVIDEND"
   if (p.includes("bonus")) return "BONUS"
   if (p.includes("split")) return "SPLIT"
   if (p.includes("rights")) return "RIGHTS"
-
   return "OTHER"
 }
 
 /* ---------------- DIVIDEND AMOUNT ---------------- */
-
 function extractDividendAmount(purpose) {
-  if (!purpose) return null;
-
-  const match = purpose.match(/(?:rs|re)[\.\s-]*([0-9]+(?:\.[0-9]+)?)/i);
-
-  return match ? parseFloat(match[1]) : null;
+  if (!purpose) return null
+  const match = purpose.match(/(?:rs|re)[\.\s-]*([0-9]+(?:\.[0-9]+)?)/i)
+  return match ? parseFloat(match[1]) : null
 }
 
 /* ---------------- RATIO ---------------- */
-
 function extractRatio(purpose) {
   if (!purpose) return null
-
   const match = purpose.match(/(\d+:\d+)/)
-
   return match ? match[1] : null
 }
 
-/* ---------------- RECORD DATE ---------------- */
+/* ---------------- SPLIT RATIO FROM "FROM RS TO RS" ---------------- */
+function extractSplitRatio(purpose) {
+  if (!purpose) return null
+  const match = purpose.match(/From\s*Rs\.?(\d+(?:\.\d+)?)\/?-?\s*to\s*Rs\.?(\d+(?:\.\d+)?)/i)
+  if (!match) return null
+  const from = parseFloat(match[1])
+  const to = parseFloat(match[2])
+  if (!from || !to) return null
+  return `${from}:${to}`
+}
 
+/* ---------------- RECORD DATE ---------------- */
 function extractRecordDate(bcPeriod, exDate) {
   if (!bcPeriod || bcPeriod === "-") return exDate
-
-  // Format: "16/03/2026-16/03/2026" or "16/03/2026"
   const parts = bcPeriod.split("-")
   const dateStr = parts[parts.length - 1].trim()
-
   return parseDate(dateStr) || exDate
 }
 
-/* ---------------- FETCH PORTFOLIO SYMBOLS ---------------- */
-
-async function getSymbolsFromTransactions() {
+/* ---------------- GET PORTFOLIO CODES ---------------- */
+async function getPortfolioCodes() {
   let allStockNames = []
   let from = 0
   const step = 1000
 
   while (true) {
-    const { data: transData, error: transError } = await supabase
+    const { data, error } = await supabase
       .from("stock_transactions")
       .select("stock_name")
       .is("sell_date", null)
       .range(from, from + step - 1)
 
-    if (transError) {
-      console.log("Error loading symbols:", transError.message)
-      return new Set()
+    if (error) {
+      console.error("Transaction error:", error.message)
+      break
     }
+    if (!data || data.length === 0) break
 
-    if (!transData.length) break
-
-    allStockNames.push(...transData.map(t => t.stock_name))
-    if (transData.length < step) break
+    allStockNames.push(...data.map(r => r.stock_name))
+    if (data.length < step) break
     from += step
   }
 
-  return new Set(allStockNames.filter(Boolean).map(n => n.toUpperCase()))
-}
+  const uniqueStockNames = [...new Set(allStockNames.filter(Boolean))]
+  console.log(`3. Portfolio stocks: ${uniqueStockNames.length}`)
 
-/* ---------------- FETCH BSE CORPORATE ACTIONS ---------------- */
+  const { data: master, error: masterError } = await supabase
+    .from("stock_master")
+    .select("stock_name, symbol")
+    .in("stock_name", uniqueStockNames)
 
-async function fetchBSEActions() {
-  const cookie = await getBseCookie()
-
-  const range = getDateRange()
-
-  console.log("Fetching BSE actions", range)
-
-  const all = []
-
-  let page = 1
-  let fetchMore = true
-
-  while (fetchMore) {
-    const url = `${API_URL}?scripcode=&fromDt=${range.from}&toDt=${range.to}&period=Selected&expandable=0&pageno=${page}`
-
-    try {
-      const res = await fetch(url, {
-        headers: {
-          ...getHeaders(),
-          Cookie: cookie
-        }
-      })
-
-      const text = await res.text()
-
-      if (text.includes("Access Denied")) {
-        console.log("BSE blocked request")
-        break
-      }
-
-      const data = JSON.parse(text)
-
-      if (!Array.isArray(data) || data.length === 0) {
-        fetchMore = false
-        break
-      }
-
-      console.log(`Page ${page} records:`, data.length)
-
-      all.push(...data)
-
-      page++
-
-      if (page > 10) fetchMore = false
-    } catch (err) {
-      console.log("Fetch error:", err.message)
-      break
-    }
+  if (masterError) {
+    console.error("Master error:", masterError.message)
+    return []
   }
 
-  return all
+  const codes = master
+    .filter(r => r.symbol && r.symbol.includes("BOM:"))
+    .map(r => r.symbol.replace("BOM:", ""))
+
+  console.log(`4. BSE code symbols are ${codes.length}`)
+  return codes
+}
+
+/* ---------------- FETCH ACTIONS FOR ONE STOCK ---------------- */
+async function fetchActionsForCode(code, range, cookie) {
+  const url = `${API_URL}?scripcode=${code}&fromDt=${range.from}&toDt=${range.to}&period=Selected&expandable=0`
+
+  try {
+    const res = await fetch(url, { headers: { ...getHeaders(), Cookie: cookie } })
+    const text = await res.text()
+    if (text.includes("Access Denied")) {
+      return []
+    }
+    const data = JSON.parse(text)
+    if (!Array.isArray(data)) return []
+    return data
+  } catch (err) {
+    return []
+  }
 }
 
 /* ---------------- SAVE TO SUPABASE ---------------- */
+async function saveToSupabase(records, portfolioSymbols) {
+  const clean = records
+    .map(item => {
+      const actionType = parseAction(item.Purpose)
+      let dividendAmount = null
+      let ratio = null
 
-async function saveToSupabase(records) {
+      if (actionType === "DIVIDEND") {
+        dividendAmount = extractDividendAmount(item.Purpose)
+        ratio = extractRatio(item.Purpose) || null
+      } else if (actionType === "SPLIT") {
+        ratio = extractRatio(item.Purpose) || extractSplitRatio(item.Purpose)
+        dividendAmount = null
+      } else if (["BONUS", "RIGHTS"].includes(actionType)) {
+        ratio = extractRatio(item.Purpose)
+        dividendAmount = null
+      }
 
-  const map = new Map()
+      return {
+        symbol: "BOM:" + String(item.Code),
+        stock_name: item.Security,
+        company_name: item.Security,
+        action_type: actionType,
+        purpose: item.Purpose,
+        ex_date: parseDate(item.ExDate),
+        record_date: extractRecordDate(item.BCPeriod, parseDate(item.ExDate)),
+        dividend_amount: dividendAmount,
+        ratio: ratio,
+        source: "BSE"
+      }
+    })
+    .filter(r => r.action_type !== "OTHER" && portfolioSymbols.has(r.symbol))
 
-  records.forEach(item => {
-
-    const actionType = parseAction(item.Purpose)
-    if (actionType === "OTHER") return
-
-    const symbol = "BOM:" + String(item.Code)
-    const exDate = parseDate(item.ExDate)
-
-    const key = `${symbol}-${actionType}-${exDate}`
-
-    const record = {
-      symbol,
-      stock_name: item.Security,
-      company_name: item.Security,
-      action_type: actionType,
-      purpose: item.Purpose,
-      ex_date: exDate,
-      record_date: extractRecordDate(item.BCPeriod, exDate),
-      dividend_amount:
-        actionType === "DIVIDEND"
-          ? extractDividendAmount(item.Purpose)
-          : null,
-      ratio: extractRatio(item.Purpose),
-      source: "BSE"
-    }
-
-    map.set(key, record)
-  })
-
-  const clean = Array.from(map.values())
+  console.log(`5. records from bse api is ${clean.length}`)
 
   if (clean.length === 0) {
-    console.log("No valid records")
+    console.log("6. duplicate found 0")
+    console.log("7. record inserted 0")
+    return
+  }
+
+  // Deduplicate within the fetched data
+  const uniqueInFetch = new Map()
+  clean.forEach(r => {
+    const key = `${r.symbol}-${r.action_type}-${r.ex_date}-${r.source}`
+    if (!uniqueInFetch.has(key)) uniqueInFetch.set(key, r)
+  })
+  const finalRecords = Array.from(uniqueInFetch.values())
+
+  // Check against database to find duplicates
+  const symbols = [...new Set(finalRecords.map(r => r.symbol))]
+  const { data: existing } = await supabase
+    .from("corporate_actions")
+    .select("symbol, action_type, ex_date, source")
+    .in("symbol", symbols)
+    .eq("source", "BSE")
+
+  const existingKeys = new Set((existing || []).map(r => `${r.symbol}-${r.action_type}-${r.ex_date}-${r.source}`))
+  
+  const toInsert = finalRecords.filter(r => {
+    const key = `${r.symbol}-${r.action_type}-${r.ex_date}-${r.source}`
+    return !existingKeys.has(key)
+  })
+
+  const duplicateCount = finalRecords.length - toInsert.length
+  console.log(`6. duplicate found ${duplicateCount}`)
+
+  if (toInsert.length === 0) {
+    console.log("7. record inserted 0")
     return
   }
 
   const { error } = await supabase
     .from("corporate_actions")
-    .upsert(clean, { 
-  onConflict: "symbol,action_type,ex_date,source",
-  ignoreDuplicates: false
-})
+    .upsert(toInsert, { onConflict: "symbol,action_type,ex_date,source" })
 
-  if (error) console.log("Insert error:", error.message)
-  else console.log("Saved records:", clean.length)
+  if (error) {
+    console.error("Insert error:", error.message)
+    console.log("7. record inserted 0")
+  } else {
+    console.log(`7. record inserted ${toInsert.length}`)
+  }
 }
 
-/* ---------------- MAIN ---------------- */
-
+/* ---------------- MAIN WITH THROTTLED PARALLEL ---------------- */
 async function main() {
-  console.log("Starting BSE corporate action scraper...")
+  console.log("1. Starting BSE portfolio corporate action scraper...")
+  console.log("2. Loading portfolio stocks...")
 
-  const [symbols, actions] = await Promise.all([
-    getSymbolsFromTransactions(),
-    fetchBSEActions()
-  ])
+  const cookie = await getBseCookie()
+  const range = getDateRange()
+  const codes = await getPortfolioCodes()
+  const portfolioSymbols = new Set(codes.map(s => "BOM:" + s))
 
-  console.log("Total BSE records:", actions.length)
+  const batchSize = 5 // number of parallel requests
+  let allActions = []
 
-  const filtered = actions.filter(a =>
-    symbols.has((a.Security || "").toUpperCase())
-  )
+  for (let i = 0; i < codes.length; i += batchSize) {
+    const batch = codes.slice(i, i + batchSize)
+    const results = await Promise.allSettled(
+      batch.map(code => fetchActionsForCode(code, range, cookie))
+    )
 
-  console.log("Filtered records:", filtered.length)
+    results
+      .filter(r => r.status === "fulfilled")
+      .forEach(r => allActions.push(...r.value))
 
-  if (filtered.length > 0) {
-    await saveToSupabase(filtered)
+    await new Promise(res => setTimeout(res, 500)) // small delay between batches
   }
 
-  console.log("BSE scraping finished")
+  if (allActions.length > 0) {
+    await saveToSupabase(allActions, portfolioSymbols)
+  } else {
+    console.log("5. records from bse api is 0")
+    console.log("6. duplicate found 0")
+    console.log("7. record inserted 0")
+  }
+
+  // BSE scraping finished (removing this log as per user's list)
 }
 
 module.exports = { run: main }
-
-if (require.main === module) {
-  main()
-}
+if (require.main === module) main()
